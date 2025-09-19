@@ -286,4 +286,77 @@ def main():
     with st.expander("🤖 Model Information"):
         st.write("""
         This OneClass SVM (Support Vector Machine) model is specifically designed for **anomaly detection** 
-        in equipment operation data. The model has been trained to learn 
+        in equipment operation data. The model has been trained to learn normal operating patterns and can 
+        identify potential anomalies based on the combination of input parameters.
+        
+        **Key Features:**
+        - Pre-trained pipeline with standard scaling preprocessing
+        - Optimized for industrial equipment monitoring
+        - Real-time anomaly detection capabilities
+        - Compatible with both joblib and pickle loading
+        """)
+    
+    with st.expander("📊 Input Parameters Explained"):
+        st.write("""
+        **Equipment ID**: Unique identifier for specific equipment units in your facility
+        
+        **Shift ID**: Work shift classification:
+        - 0: Night shift
+        - 1: Day shift  
+        - 2: Evening shift
+        
+        **Worker ID**: Unique identifier for equipment operators
+        
+        **Location ID**: Identifier for the physical location where equipment is operating
+        
+        **Activity ID**: Type of activity or operation being performed (2-12)
+        
+        **FL Max Speed**: Maximum operational speed setting for the equipment (15-70)
+        """)
+    
+    with st.expander("🎯 Understanding Results"):
+        st.write("""
+        **Normal Operation (✅)**: The combination of input parameters represents typical, 
+        expected operating conditions based on historical data patterns.
+        
+        **Anomaly Detected (⚠️)**: The input parameters represent unusual combinations that 
+        deviate from normal patterns. This could indicate:
+        - Equipment malfunction
+        - Unusual operating conditions
+        - Need for maintenance
+        - Process optimization opportunities
+        
+        **Decision Score**: 
+        - Positive values (>0): Normal operation (higher = more normal)
+        - Negative values (<0): Potential anomaly (lower = more anomalous)
+        """)
+    
+    with st.expander("🛠️ Troubleshooting"):
+        st.write("""
+        **Model Loading:**
+        - App tries joblib first (recommended for scikit-learn), then falls back to pickle
+        - Ensure 'OneClass_SVM.sav' file is in the same directory
+        
+        **Common Issues:**
+        1. **Model file format**: Try re-saving your model using `joblib.dump(model, 'OneClass_SVM.sav')`
+        2. **Feature mismatch**: Ensure model expects 6 features in this order: EquipmentID, ShiftID, WorkerID, LocationID, ActivityID, FlMaxSpeed
+        3. **Preprocessing**: Make sure preprocessing pipeline is included in the saved model
+        
+        **Model Requirements:**
+        - Must be a scikit-learn model with 'predict' method
+        - Should include preprocessing pipeline if needed
+        - Must be compatible with the input data format (6 features)
+        """)
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        "<div style='text-align: center; color: gray;'>"
+        "OneClass SVM Anomaly Detection System | Built with Streamlit<br>"
+        "Model Loading: Joblib (primary) + Pickle (fallback)"
+        "</div>", 
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    main()
