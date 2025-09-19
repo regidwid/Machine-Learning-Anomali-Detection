@@ -1,4 +1,5 @@
 import streamlit as st
+import joblib
 import pickle
 import pandas as pd
 import numpy as np
@@ -10,19 +11,112 @@ st.set_page_config(
     layout="wide"
 )
 
-# Load the model
+# Load the model with joblib and pickle fallback
 @st.cache_resource
 def load_model():
+    """Load model using joblib first, then fallback to pickle"""
+    
+    # Try joblib first (recommended for scikit-learn models)
     try:
-        with open('OneClass_SVM.sav', 'rb') as file:
-            model = pickle.load(file)
-        return model
-    except FileNotFoundError:
-        st.error("❌ Model file 'OneClass_SVM.sav' not found. Please ensure the file is in the same directory as this script.")
-        return None
+        loaded_object = joblib.load('OneClass_SVM.sav')
+        st.info(f"✅ Model loaded successfully using joblib")
+        st.info(f"🔍 Loaded object type: {type(loaded_object)}")
+        
+        # Check if it's a valid model with predict method
+        if hasattr(loaded_object, 'predict') and hasattr(loaded_object, 'decision_function'):
+            st.success("✅ Valid model with predict and decision_function methods found!")
+            return loaded_object
+        elif hasattr(loaded_object, 'predict'):
+            st.warning("⚠️ Model has predict method but no decision_function. Will use predict only.")
+            return loaded_object
+        else:
+            st.error(f"❌ Loaded object doesn't have required methods. Object type: {type(loaded_object)}")
+            if hasattr(loaded_object, '__dict__'):
+                st.write("Available attributes:", list(loaded_object.__dict__.keys()) if hasattr(loaded_object, '__dict__') else "No __dict__")
+            return None
+            
+    except Exception as joblib_error:
+        st.warning(f"⚠️ Joblib loading failed: {str(joblib_error)}")
+        st.info("🔄 Trying to load with pickle...")
+        
+        # Fallback to pickle
+        try:
+            with open('OneClass_SVM.sav', 'rb') as file:
+                loaded_object = pickle.load(file)
+            
+            st.info(f"✅ Model loaded successfully using pickle fallback")
+            st.info(f"🔍 Loaded object type: {type(loaded_object)}")
+            
+            # Check if it's a valid model with predict method
+            if hasattr(loaded_object, 'predict') and hasattr(loaded_object, 'decision_function'):
+                st.success("✅ Valid model with predict and decision_function methods found!")
+                return loaded_object
+            elif hasattr(loaded_object, 'predict'):
+                st.warning("⚠️ Model has predict method but no decision_function. Will use predict only.")
+                return loaded_object
+            else:
+                st.error(f"❌ Loaded object doesn't have required methods. Object type: {type(loaded_object)}")
+                if hasattr(loaded_object, '__dict__'):
+                    st.write("Available attributes:", list(loaded_object.__dict__.keys()) if hasattr(loaded_object, '__dict__') else "No __dict__")
+                return None
+                
+        except FileNotFoundError:
+            st.error("❌ Model file 'OneClass_SVM.sav' not found. Please ensure the file is in the same directory as this script.")
+            return None
+        except Exception as pickle_error:
+            st.error(f"❌ Both joblib and pickle loading failed:")
+            st.error(f"   - Joblib error: {str(joblib_error)}")
+            st.error(f"   - Pickle error: {str(pickle_error)}")
+            return None
+
+def make_prediction_safe(model, input_data):
+    """Safely make prediction with error handling"""
+    try:
+        # Check if model has predict method
+        if not hasattr(model, 'predict'):
+            raise AttributeError("Model object doesn't have 'predict' method")
+        
+        # Make prediction
+        prediction = model.predict(input_data)
+        
+        # Try to get decision function if available
+        decision_score = None
+        if hasattr(model, 'decision_function'):
+            try:
+                decision_score = model.decision_function(input_data)
+            except Exception as e:
+                st.warning(f"⚠️ Could not get decision function: {str(e)}")
+                decision_score = None
+        
+        return prediction, decision_score
+        
     except Exception as e:
-        st.error(f"❌ Error loading model: {str(e)}")
-        return None
+        raise Exception(f"Prediction failed: {str(e)}")
+
+def debug_model_info(model):
+    """Display detailed model information for debugging"""
+    st.write("🔧 **Detailed Model Information:**")
+    
+    # Basic info
+    st.write(f"- **Model Type**: {type(model)}")
+    st.write(f"- **Model Module**: {type(model).__module__}")
+    
+    # Check for common attributes
+    common_attrs = ['predict', 'decision_function', 'fit', 'transform', 'predict_proba', 'score']
+    available_attrs = [attr for attr in common_attrs if hasattr(model, attr)]
+    st.write(f"- **Available Methods**: {available_attrs}")
+    
+    # If it's a pipeline, show steps
+    if hasattr(model, 'steps'):
+        st.write(f"- **Pipeline Steps**: {[step[0] for step in model.steps]}")
+    
+    # If it has named_steps (Pipeline)
+    if hasattr(model, 'named_steps'):
+        st.write(f"- **Named Steps**: {list(model.named_steps.keys())}")
+    
+    # Show all attributes (limited to first 20)
+    all_attrs = [attr for attr in dir(model) if not attr.startswith('_')][:20]
+    st.write(f"- **All Attributes (first 20)**: {all_attrs}")
 
 def main():
     st.title("🔍 OneClass SVM Anomaly Detection")
@@ -32,10 +126,16 @@ def main():
     # Load model
     model = load_model()
     if model is None:
+        st.error("Cannot proceed without a valid model. Please check your model file.")
+        st.info("💡 **Tips for fixing this issue:**")
+        st.write("1. Ensure 'OneClass_SVM.sav' file exists in the app directory")
+        st.write("2. Make sure the file contains a complete scikit-learn model/pipeline")
+        st.write("3. Try re-saving your model using: `joblib.dump(model, 'OneClass_SVM.sav')`")
         st.stop()
     
-    # Success message for model loading
-    st.success("✅ Model loaded successfully!")
+    # Show model debugging info in expander
+    with st.expander("🔍 Model Debug Information", expanded=False):
+        debug_model_info(model)
     
     # Create input section
     st.header("📊 Input Parameters")
@@ -104,11 +204,15 @@ def main():
             'FlMaxSpeed': [fl_max_speed]
         })
         
+        with st.expander("📋 Input Data Debug", expanded=False):
+            st.dataframe(input_data)
+            st.write(f"Data shape: {input_data.shape}")
+            st.write(f"Data types: {input_data.dtypes.to_dict()}")
+        
         try:
-            # Make prediction
+            # Make prediction with error handling
             with st.spinner('Analyzing data...'):
-                prediction = model.predict(input_data)
-                decision_score = model.decision_function(input_data)
+                prediction, decision_score = make_prediction_safe(model, input_data)
             
             # Display results
             st.markdown("---")
@@ -121,32 +225,31 @@ def main():
                 if prediction[0] == 1:
                     st.success("✅ **NORMAL OPERATION**")
                     st.write("The input parameters represent **normal operating conditions**.")
-                    status_emoji = "✅"
-                    status_color = "green"
                 else:
                     st.error("⚠️ **ANOMALY DETECTED**")
                     st.write("The input parameters may represent **unusual or anomalous conditions** that require attention.")
-                    status_emoji = "⚠️"
-                    status_color = "red"
             
             with result_col2:
-                st.metric(
-                    label="Decision Score", 
-                    value=f"{decision_score[0]:.4f}",
-                    help="Higher positive scores indicate normal behavior, negative scores indicate anomalies"
-                )
-                
-                # Score interpretation
-                if decision_score[0] > 0.5:
-                    confidence = "High confidence - Normal"
-                elif decision_score[0] > 0:
-                    confidence = "Medium confidence - Normal"
-                elif decision_score[0] > -0.5:
-                    confidence = "Medium confidence - Anomaly"
+                if decision_score is not None:
+                    st.metric(
+                        label="Decision Score", 
+                        value=f"{decision_score[0]:.4f}",
+                        help="Higher positive scores indicate normal behavior, negative scores indicate anomalies"
+                    )
+                    
+                    # Score interpretation
+                    if decision_score[0] > 0.5:
+                        confidence = "High confidence - Normal"
+                    elif decision_score[0] > 0:
+                        confidence = "Medium confidence - Normal"
+                    elif decision_score[0] > -0.5:
+                        confidence = "Medium confidence - Anomaly"
+                    else:
+                        confidence = "High confidence - Anomaly"
+                    
+                    st.write(f"**Confidence Level:** {confidence}")
                 else:
-                    confidence = "High confidence - Anomaly"
-                
-                st.write(f"**Confidence Level:** {confidence}")
+                    st.info("Decision score not available for this model")
             
             # Display input summary
             st.subheader("📊 Input Summary")
@@ -161,7 +264,19 @@ def main():
             
         except Exception as e:
             st.error(f"❌ Error making prediction: {str(e)}")
-            st.write("Please check that all inputs are valid and try again.")
+            
+            # Additional debugging information
+            with st.expander("🔧 Extended Debugging Information", expanded=True):
+                debug_model_info(model)
+                st.write("**Input data details:**")
+                st.write(f"- Input data shape: {input_data.shape}")
+                st.write(f"- Input data types: {input_data.dtypes.to_dict()}")
+                st.write(f"- Input data values: {input_data.values}")
+                
+                st.write("**Possible solutions:**")
+                st.write("1. Check if the model expects different feature names")
+                st.write("2. Verify the model was trained on the same feature order")
+                st.write("3. Ensure the preprocessing pipeline is included in the saved model")
     
     # Information section
     st.markdown("---")
@@ -171,58 +286,4 @@ def main():
     with st.expander("🤖 Model Information"):
         st.write("""
         This OneClass SVM (Support Vector Machine) model is specifically designed for **anomaly detection** 
-        in equipment operation data. The model has been trained to learn normal operating patterns and can 
-        identify potential anomalies based on the combination of input parameters.
-        
-        **Key Features:**
-        - Pre-trained pipeline with standard scaling preprocessing
-        - Optimized for industrial equipment monitoring
-        - Real-time anomaly detection capabilities
-        """)
-    
-    with st.expander("📊 Input Parameters Explained"):
-        st.write("""
-        **Equipment ID**: Unique identifier for specific equipment units in your facility
-        
-        **Shift ID**: Work shift classification:
-        - 0: Night shift
-        - 1: Day shift  
-        - 2: Evening shift
-        
-        **Worker ID**: Unique identifier for equipment operators
-        
-        **Location ID**: Identifier for the physical location where equipment is operating
-        
-        **Activity ID**: Type of activity or operation being performed (2-12)
-        
-        **FL Max Speed**: Maximum operational speed setting for the equipment (15-70)
-        """)
-    
-    with st.expander("🎯 Understanding Results"):
-        st.write("""
-        **Normal Operation (✅)**: The combination of input parameters represents typical, 
-        expected operating conditions based on historical data patterns.
-        
-        **Anomaly Detected (⚠️)**: The input parameters represent unusual combinations that 
-        deviate from normal patterns. This could indicate:
-        - Equipment malfunction
-        - Unusual operating conditions
-        - Need for maintenance
-        - Process optimization opportunities
-        
-        **Decision Score**: 
-        - Positive values (>0): Normal operation (higher = more normal)
-        - Negative values (<0): Potential anomaly (lower = more anomalous)
-        """)
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        "<div style='text-align: center; color: gray;'>"
-        "OneClass SVM Anomaly Detection System | Built with Streamlit"
-        "</div>", 
-        unsafe_allow_html=True
-    )
-
-if __name__ == "__main__":
-    main()
+        in equipment operation data. The model has been trained to learn 
